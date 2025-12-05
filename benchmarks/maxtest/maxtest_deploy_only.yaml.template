@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: headless-svc-${JOB_NAME}
+spec:
+  clusterIP: None
+  selector:
+    job-name: ${JOB_NAME}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${JOB_NAME}
+spec:
+  backoffLimit: 0
+  completions: ${COMPLETIONS}
+  parallelism: ${COMPLETIONS}
+  completionMode: Indexed
+  template:
+    spec:
+      nodeSelector:
+        cloud.google.com/gke-nodepool: ${NODEPOOL}
+        cloud.google.com/gke-tpu-topology: ${TPU_TOPOLOGY}
+        cloud.google.com/gke-tpu-accelerator: ${TPU_ACCELERATOR}
+      hostNetwork: false
+      subdomain: headless-svc-${JOB_NAME}
+      restartPolicy: Never
+      containers:
+      - name: tpu-job
+        image: ${DOCKER_IMAGE}
+        ports:
+        - containerPort: 8471
+        - containerPort: 8431
+        securityContext:
+          privileged: true
+        env:
+        command:
+        - bash
+        - -c
+        - |
+          printenv
+          _sigterm() (kill -SIGTERM $! 2>/dev/null;);
+          trap _sigterm SIGTERM;
+
+        resources:
+          requests:
+            memory: ${MEMORY_PER_HOST}
+            google.com/tpu: ${TPU_CHIPS_PER_HOST}
+          limits:
+            memory: ${MEMORY_PER_HOST}
+            google.com/tpu: ${TPU_CHIPS_PER_HOST}
