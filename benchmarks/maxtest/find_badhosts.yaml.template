@@ -1,0 +1,35 @@
+apiVersion: pathways-job.pathways.domain/v1
+kind: PathwaysJob
+metadata:
+  name: headless-svc-${JOB_NAME}
+  labels: {"kueue.x-k8s.io/queue-name":"multislice-queue"}
+spec:
+  maxRestarts: 2
+  workers:
+  - type: ct6e-standard-4t
+    topology: 16x16
+    numSlices: 1
+  pathwaysDir: gs://pengyisu-tpu-testing
+  controller:
+    deploymentMode: default
+    template:
+      spec:
+        containers:
+        - name: main
+          image: gcr.io/tpu-prod-env-one-vm/pengyisu_maxtest_experimental
+          command:
+          - bash
+          - -c
+          - |
+            printenv
+            _sigterm() (kill -SIGTERM $! 2>/dev/null;);
+            trap _sigterm SIGTERM;
+
+            (python3 -m benchmarks.benchmark_runner scan-bad-hosts \
+            --device_type=$TPU_ACCELERATOR_TYPE \
+            --slice_topology=$SLICE_TOPOLOGY
+            --base_output_directory=gke-healthscan-output \
+            --num_steps=5 \
+            --num_slices=$NUM_SLICES \
+            ) & PID=$1;
+
