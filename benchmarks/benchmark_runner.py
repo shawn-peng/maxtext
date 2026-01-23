@@ -236,8 +236,41 @@ def add_on_device_runner_arguments(custom_parser: argparse.ArgumentParser):
       help="Number of steps to run the workload for.",
   )
 
-
 def add_healthscan_runner_arguments(custom_parser: argparse.ArgumentParser):
+  """Add arguments to the healthscan runner parser.
+
+  Args:
+    custom_parser: parser to add shared arguments to.
+  """
+  custom_parser.add_argument(
+    "--base_output_directory",
+    type=str,
+    default=None,
+    required=True,
+    help="gcloud bucket to store artifacts.",
+  )
+  custom_parser.add_argument(
+    "--device_type",
+    type=str,
+    default=None,
+    required=True,
+    help="tpu device type command.",
+  )
+  custom_parser.add_argument(
+    "--run_name",
+    type=str,
+    default=None,
+    help="run_name for model run",
+  )
+  custom_parser.add_argument(
+    "--num_steps",
+    type=int,
+    default=20,
+    help="Number of steps to run the workload for.",
+  )
+
+
+def add_scan_bad_hosts_runner_arguments(custom_parser: argparse.ArgumentParser):
   """Add arguments to the healthscan runner parser.
 
   Args:
@@ -268,6 +301,12 @@ def add_healthscan_runner_arguments(custom_parser: argparse.ArgumentParser):
       type=int,
       default=20,
       help="Number of steps to run the workload for.",
+  )
+  custom_parser.add_argument(
+      "--num_slices",
+      type=int,
+      default=None,
+      help="Number of slices to run the workload.",
   )
 
 
@@ -393,6 +432,27 @@ def main() -> None:
         run_name=f"{curr_date}-health-test",
         # Internal only support, not for customers
         generate_metrics_and_upload_to_big_query=False,
+    )
+
+    workload_config.model.tuning_params["gcs_metrics"] = False
+    on_device_benchmark_runner(workload_configs=[workload_config])
+  elif options.runner == "scan-bad-hosts":
+    num_slices = options.num_slices
+
+    model = trillium_model_dict.llama2_7b_4096
+
+    curr_date = time.strftime("%Y%m%d")
+    workload_config = WorkloadConfig(
+      model=model,
+      num_slices=None,
+      device_type=options.device_type,
+      libtpu_type=LibTpuType.MAXTEXT,
+      base_docker_image=None,
+      num_steps=options.num_steps,
+      base_output_directory=options.base_output_directory,
+      run_name=f"{curr_date}-health-test",
+      # Internal only support, not for customers
+      generate_metrics_and_upload_to_big_query=False,
     )
 
     workload_config.model.tuning_params["gcs_metrics"] = False
