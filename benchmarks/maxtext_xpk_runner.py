@@ -93,6 +93,8 @@ class WorkloadConfig:
 
   model: model_configs.MaxTextModel
   num_slices: int
+  num_subslices: int
+  subslice_index: int
   device_type: str
   base_output_directory: str
   base_docker_image: str

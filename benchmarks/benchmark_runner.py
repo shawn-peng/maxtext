@@ -303,7 +303,7 @@ def add_scan_bad_hosts_runner_arguments(custom_parser: argparse.ArgumentParser):
       help="Number of steps to run the workload for.",
   )
   custom_parser.add_argument(
-      "--num_slices",
+      "--num_subslices",
       type=int,
       default=None,
       help="Number of slices to run the workload.",
@@ -437,26 +437,30 @@ def main() -> None:
     workload_config.model.tuning_params["gcs_metrics"] = False
     on_device_benchmark_runner(workload_configs=[workload_config])
   elif options.runner == "scan-bad-hosts":
-    num_slices = options.num_slices
+    num_subslices = options.num_subslices
+    print(f"running scan-bad-hosts with {num_subslices} subslices")
 
     model = trillium_model_dict.llama2_7b_4096
 
     curr_date = time.strftime("%Y%m%d")
-    workload_config = WorkloadConfig(
-      model=model,
-      num_slices=None,
-      device_type=options.device_type,
-      libtpu_type=LibTpuType.MAXTEXT,
-      base_docker_image=None,
-      num_steps=options.num_steps,
-      base_output_directory=options.base_output_directory,
-      run_name=f"{curr_date}-health-test",
-      # Internal only support, not for customers
-      generate_metrics_and_upload_to_big_query=False,
-    )
+    for i in range(options.num_subslices):
+      workload_config = WorkloadConfig(
+        model=model,
+        num_slices=None,
+        num_subslices=num_subslices,
+        subslice_index=i,
+        device_type=options.device_type,
+        libtpu_type=LibTpuType.MAXTEXT,
+        base_docker_image=None,
+        num_steps=options.num_steps,
+        base_output_directory=options.base_output_directory,
+        run_name=f"{curr_date}-health-test",
+        # Internal only support, not for customers
+        generate_metrics_and_upload_to_big_query=False,
+      )
 
-    workload_config.model.tuning_params["gcs_metrics"] = False
-    on_device_benchmark_runner(workload_configs=[workload_config])
+      workload_config.model.tuning_params["gcs_metrics"] = False
+      # on_device_benchmark_runner(workload_configs=[workload_config])
 
 
 if __name__ == "__main__":

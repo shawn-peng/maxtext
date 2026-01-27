@@ -405,6 +405,7 @@ def train_loop(config, recorder, state=None):
       eval_data_iterator,
       state,
   ) = train_utils.setup_train_loop(config, recorder)
+  print(f'mesh created {mesh}')
 
   if config.use_dpo:
     if "reference_params" not in state.params:

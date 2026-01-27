@@ -179,6 +179,12 @@ def setup_train_loop(config, recorder, devices=None):
   # pylint: disable=import-outside-toplevel
   from MaxText.input_pipeline.input_pipeline_interface import create_data_iterator
 
+  print(f'setting up train loop with config, {config}')
+  print(jax)
+  device_count = jax.device_count()
+  local_device_count = jax.local_device_count()
+
+
   with maybe_record_goodput(recorder, GoodputEvent.TPU_INIT):
     model = model_creation_utils.from_config(config, devices)
     mesh = model.mesh

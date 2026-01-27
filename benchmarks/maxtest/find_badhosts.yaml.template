@@ -30,6 +30,6 @@ spec:
             --slice_topology=$SLICE_TOPOLOGY
             --base_output_directory=gke-healthscan-output \
             --num_steps=5 \
-            --num_slices=$NUM_SLICES \
+            --num_subslices=$NUM_SUBSLICES \
             ) & PID=$1;
 
