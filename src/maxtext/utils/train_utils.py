@@ -209,6 +209,12 @@ def setup_train_loop(config, recorder, devices=None):
   # pylint: disable=import-outside-toplevel
   from maxtext.input_pipeline.input_pipeline_interface import create_data_iterator
 
+  print(f'setting up train loop with config, {config}')
+  print(jax)
+  device_count = jax.device_count()
+  local_device_count = jax.local_device_count()
+
+
   with maybe_record_goodput(recorder, GoodputEvent.TPU_INIT):
     is_training = True
     init_rng = jax.random.PRNGKey(config.init_weights_seed)
