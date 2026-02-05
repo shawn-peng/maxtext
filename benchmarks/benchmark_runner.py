@@ -317,10 +317,12 @@ def main() -> None:
   xpk_runner_parser = subparsers.add_parser("xpk")
   on_device_runner_parser = subparsers.add_parser("on-device")
   healthscan_runner_parser = subparsers.add_parser("healthscan")
+  scan_bad_hosts_runner_parser = subparsers.add_parser("scan-bad-hosts")
   add_xpk_runner_arguments(xpk_runner_parser)
   add_on_device_runner_arguments(on_device_runner_parser)
   add_pathways_arguments(parser)
   add_healthscan_runner_arguments(healthscan_runner_parser)
+  add_scan_bad_hosts_runner_arguments(scan_bad_hosts_runner_parser)
   options = parser.parse_args()
 
   # Check that there are no duplicate model configs
