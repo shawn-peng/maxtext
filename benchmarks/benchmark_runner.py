@@ -462,7 +462,7 @@ def main() -> None:
       )
 
       workload_config.model.tuning_params["gcs_metrics"] = False
-      # on_device_benchmark_runner(workload_configs=[workload_config])
+      on_device_benchmark_runner(workload_configs=[workload_config])
 
 
 if __name__ == "__main__":
