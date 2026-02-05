@@ -93,13 +93,13 @@ class WorkloadConfig:
 
   model: model_configs.MaxTextModel
   num_slices: int
-  num_subslices: int
   subslice_index: int
   device_type: str
   base_output_directory: str
   base_docker_image: str
   libtpu_type: LibTpuType
   libtpu_nightly_version: str = None  # A date in %Y%M%D format, 20241201
+  num_subslices: int = 1
   num_steps: int = 20
   max_restarts: int = 0
   priority: str = "medium"
