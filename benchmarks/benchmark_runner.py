@@ -331,7 +331,7 @@ def main() -> None:
   libtpu_type = None
   model = None
 
-  if options.runner != "healthscan":
+  if options.runner not in ["healthscan", "scan-bad-hosts"]:
     model = (
         trillium_model_dict.get(options.model_name)
         or v5e_model_dict.get(options.model_name)
