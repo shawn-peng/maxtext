@@ -442,7 +442,7 @@ def main() -> None:
     num_subslices = options.num_subslices
     print(f"running scan-bad-hosts with {num_subslices} subslices")
 
-    model = trillium_model_dict.llama2_7b_4096
+    model = trillium_model_dict["llama2_7b_4096"]
 
     curr_date = time.strftime("%Y%m%d")
     for i in range(options.num_subslices):
