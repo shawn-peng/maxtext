@@ -447,6 +447,7 @@ def build_user_command(
           f"steps={wl_config.num_steps}",
           f"model_name={wl_config.model.model_type}",
           f"base_output_directory={wl_config.base_output_directory}",
+          f"device_mesh=2x4,{wl_config.subslice_index}", # currently, the subslice shape is hard coded
           f"{vertex_tensorboard}",
           f"{run_name_command}",
           f"{enable_metrics_cmd}",
