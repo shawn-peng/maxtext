@@ -48,7 +48,7 @@ export COMPLETIONS=$NUM_WORKERS # Number of VMs in the nodepool (v6e -> 2 VMs fo
 
 YAML_VARS='$JOB_NAME $DOCKER_IMAGE $NODEPOOL $TPU_TOPOLOGY $TPU_ACCELERATOR $COMPLETIONS $MEMORY_PER_HOST $TPU_CHIPS_PER_HOST $GKE_PROJECT $GKE_REGION $GKE_CLUSTER $LIBTPU_ARGS'
 
-envsubst "${YAML_VARS}" < maxtest.yaml.template > maxtest.yaml
+envsubst "${YAML_VARS}" < maxtest_deploy_only.yaml.template > maxtest.yaml
 
 # --- Execution ---
 gcloud container clusters get-credentials $GKE_CLUSTER --region=$GKE_REGION --project=$GKE_PROJECT

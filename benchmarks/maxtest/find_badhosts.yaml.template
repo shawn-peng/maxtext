@@ -1,7 +1,7 @@
 apiVersion: pathways-job.pathways.domain/v1
 kind: PathwaysJob
 metadata:
-  name: headless-svc-${JOB_NAME}
+  name: ${JOB_NAME}
   labels: {"kueue.x-k8s.io/queue-name":"multislice-queue"}
 spec:
   maxRestarts: 2
