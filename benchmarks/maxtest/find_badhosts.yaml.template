@@ -6,8 +6,8 @@ metadata:
 spec:
   maxRestarts: 2
   workers:
-  - type: ct6e-standard-4t
-    topology: 16x16
+  - type: ${TPU_ACCELERATOR}
+    topology: ${TPU_TOPOLOGY}
     numSlices: 1
   pathwaysDir: gs://pengyisu-tpu-testing
   controller:
@@ -27,7 +27,7 @@ spec:
 
             (python3 -m benchmarks.benchmark_runner scan-bad-hosts \
             --device_type=$TPU_ACCELERATOR_TYPE \
-            --slice_topology=$SLICE_TOPOLOGY
+            --slice_topology=$SLICE_TOPOLOGY \
             --base_output_directory=gke-healthscan-output \
             --num_steps=5 \
             --num_subslices=$NUM_SUBSLICES \

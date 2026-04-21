@@ -32,6 +32,9 @@ if [ -z "$TPU_TOPOLOGY" ]; then exit; fi;
 TPU_ACCELERATOR=$(gcloud container node-pools describe $NODEPOOL --region=$GKE_REGION --cluster=$GKE_CLUSTER --project=$GKE_PROJECT | grep "goog-gke-accelerator-type" | awk '{print $2}')
 if [ -z "$TPU_ACCELERATOR" ]; then exit; fi;
 
+echo TPU_TOPOLOGY=${TPU_TOPOLOGY}
+echo TPU_ACCELERATOR=${TPU_ACCELERATOR}
+
 UUID=$(uuidgen)
 export JOB_NAME="${UUID:0:5}-maxtest"
 export DOCKER_IMAGE="us-docker.pkg.dev/cloud-tpu-images-public/tpu/healthscan:latest"
@@ -47,7 +50,7 @@ export MEMORY_PER_HOST="407Gi"
 export TPU_CHIPS_PER_HOST=4
 export COMPLETIONS=$NUM_WORKERS # Number of VMs in the nodepool (v6e -> 2 VMs for v6e-8, v5p -> 1 VM for a v5p-8)
 
-YAML_VARS='$JOB_NAME $DOCKER_IMAGE $NODEPOOL $TPU_TOPOLOGY $NUM_SUBSLICES $TPU_ACCELERATOR $COMPLETIONS $MEMORY_PER_HOST $TPU_CHIPS_PER_HOST $GKE_PROJECT $GKE_REGION $GKE_CLUSTER $LIBTPU_ARGS'
+YAML_VARS='$JOB_NAME $DOCKER_IMAGE $NODEPOOL $NUM_SUBSLICES $TPU_TOPOLOGY $TPU_ACCELERATOR $COMPLETIONS $MEMORY_PER_HOST $TPU_CHIPS_PER_HOST $GKE_PROJECT $GKE_REGION $GKE_CLUSTER $LIBTPU_ARGS'
 
 envsubst "${YAML_VARS}" < find_badhosts.yaml.template > find_badhosts.yaml
 
