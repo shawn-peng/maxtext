@@ -6,7 +6,7 @@ metadata:
 spec:
   maxRestarts: 2
   workers:
-  - type: ${TPU_ACCELERATOR}
+  - type: ${TPU_TYPE}
     topology: ${TPU_TOPOLOGY}
     numSlices: 1
   pathwaysDir: gs://pengyisu-tpu-testing
