@@ -39,7 +39,7 @@ echo TPU_ACCELERATOR=${TPU_ACCELERATOR}
 echo TPU_TYPE=${TPU_TYPE}
 
 UUID=$(uuidgen)
-export JOB_NAME="${UUID:0:5}-maxtest"
+export JOB_NAME="maxtest-${UUID:0:5}"
 export DOCKER_IMAGE="us-docker.pkg.dev/cloud-tpu-images-public/tpu/healthscan:latest"
 export NODEPOOL
 export TPU_TOPOLOGY
