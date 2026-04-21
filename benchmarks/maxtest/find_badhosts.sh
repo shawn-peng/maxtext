@@ -36,6 +36,7 @@ if [ -z "$TPU_TYPE" ]; then exit; fi;
 
 echo TPU_TOPOLOGY=${TPU_TOPOLOGY}
 echo TPU_ACCELERATOR=${TPU_ACCELERATOR}
+echo TPU_TYPE=${TPU_TYPE}
 
 UUID=$(uuidgen)
 export JOB_NAME="${UUID:0:5}-maxtest"
