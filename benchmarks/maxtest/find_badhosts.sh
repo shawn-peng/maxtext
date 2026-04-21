@@ -44,6 +44,7 @@ export DOCKER_IMAGE="us-docker.pkg.dev/cloud-tpu-images-public/tpu/healthscan:la
 export NODEPOOL
 export TPU_TOPOLOGY
 export TPU_ACCELERATOR
+export TPU_TYPE
 export GKE_PROJECT
 export GKE_REGION
 export GKE_CLUSTER
