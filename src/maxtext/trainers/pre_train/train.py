@@ -702,6 +702,7 @@ def get_train_func(config, recorder, diagnostic_config, argv):
 
 
 def main(argv: Sequence[str]) -> None:
+  print('main function in the train.py')
   config, recorder, diagnostic_config = initialize(argv)
   record_goodput(recorder, RECORD_JOB_START_TIME)
   train_func = get_train_func(config, recorder, diagnostic_config, argv)
