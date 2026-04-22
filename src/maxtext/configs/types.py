@@ -832,6 +832,7 @@ class HardwareAndMesh(BaseModel):
   remove_size_one_mesh_axis_from_type: bool = Field(
       True, description="Whether to remove size one mesh axis from type through jax.config."
   )
+  device_mesh: str = Field("", description="A subslice device mesh to be used")
 
 
 class LayoutAndSharding(BaseModel):
