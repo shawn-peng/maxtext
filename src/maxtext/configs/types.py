@@ -1459,7 +1459,7 @@ class DevelopmentAndDebugging(BaseModel):
   skip_jax_distributed_system: bool = Field(False, description="If True, do not initialize the jax distributed system.")
   enable_single_controller: bool = Field(False, description="Enable single-controller mode (Pathways).")
   subslice_shape: str = Field("", description="Subslice shape in the form of 'x,y,z' for Pathways.")
-  subslice_index: int = Field(0, description="Subslice index for Pathways.")
+  subslice_index: int = Field(0, description="Subslice index for Pathways. Enumerating the device axis in order of x,y,z.")
   max_checkify: bool = Field(
       False,
       description="If True, perform extra checks using jax.checkify, affecting performance.",
