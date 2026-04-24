@@ -18,7 +18,6 @@
 import functools
 import pickle
 import os
-from pprint import pprint
 
 from flax import linen as nn
 from flax.linen import partitioning as nn_partitioning
@@ -1487,11 +1486,11 @@ def create_device_mesh(config, devices=None):
     subslice_shape = tuple(int(x) for x in config.subslice_shape.split(","))
     device_coords = [device.coords for device in devices]
     device_coords_np = np.array(device_coords)
-    pprint("device_coords_np:", device_coords_np)
+    print("device_coords_np:", device_coords_np)
 
     # Find the minimum coordinates to start the subslice
     min_coords = device_coords_np.min(axis=0)
-    pprint("min_coords:", min_coords)
+    print("min_coords:", min_coords)
 
     subslice_devices = []
     for device in devices:
