@@ -1484,6 +1484,7 @@ def create_device_mesh(config, devices=None):
   if config.subslice_shape and config.enable_single_controller and config.num_slices == 1:
     max_logging.log(f"Trying to create a subslice with shape: {config.subslice_shape}")
     subslice_shape = tuple(int(x) for x in config.subslice_shape.split(","))
+    subslice_coord = tuple(int(x) for x in config.subslice_coord.split(","))
     device_coords = [device.coords for device in devices]
     device_coords_np = np.array(device_coords)
     print("device_coords_np:", device_coords_np)
@@ -1495,7 +1496,8 @@ def create_device_mesh(config, devices=None):
     subslice_devices = []
     for device in devices:
       coords = device.coords
-      if all(min_coords[i] <= coords[i] < min_coords[i] + subslice_shape[i] for i in range(len(subslice_shape))):
+      if all(min_coords[i] + subslice_coord[i] * subslice_shape[i] <= coords[i] < min_coords[i] + (subslice_coord[i] + 1) * subslice_shape[i]
+             for i in range(len(subslice_shape))):
         subslice_devices.append(device)
     devices = subslice_devices
 
