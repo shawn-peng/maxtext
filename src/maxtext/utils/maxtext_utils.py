@@ -18,6 +18,7 @@
 import functools
 import pickle
 import os
+from pprint import pprint
 
 from flax import linen as nn
 from flax.linen import partitioning as nn_partitioning
@@ -1479,7 +1480,7 @@ def add_config_to_summary_writer(config, summary_writer):
 
 def create_device_mesh(config, devices=None):
   """Creates a device mesh with each slice in its own data parallel group. If there is only one slice, uses two replicas"""
-  print("Creating mesh using config", config)
+  pprint("Creating mesh using config", config)
   if devices is None:
     devices = jax.devices()
   if config.subslice_shape and config.enable_single_controller and config.num_slices == 1:
