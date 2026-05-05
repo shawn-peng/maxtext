@@ -37,7 +37,7 @@ if __name__ == "__main__":
   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
     futures = [
       executor.submit(run_subslice, "0,0,0"),
-      executor.submit(run_subslice, "0,0,1")
+      # executor.submit(run_subslice, "0,0,1")
     ]
     concurrent.futures.wait(futures)
 
