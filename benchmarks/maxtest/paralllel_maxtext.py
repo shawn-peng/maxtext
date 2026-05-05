@@ -6,6 +6,8 @@ from jax.sharding import AxisType, Mesh
 # Import MaxText training logic
 from maxtext.trainers.pre_train import train
 
+from absl import app
+
 pathwaysutils.initialize()
 
 def run_subslice(subslice_coord):
@@ -27,7 +29,7 @@ def run_subslice(subslice_coord):
   # Run the training loop for this subslice
   train.main(config_args)
 
-if __name__ == "__main__":
+def main():
   # JAX + Pathways initialization (single connection)
   # Ensure JAX_PLATFORMS=proxy and JAX_BACKEND_TARGET=grpc://127.0.0.1:29000 are exported in your shell
 
@@ -42,3 +44,8 @@ if __name__ == "__main__":
     concurrent.futures.wait(futures)
 
   print("Both parallel MaxText jobs completed successfully!")
+
+
+if __name__ == "__main__":
+  app.run(main)
+
