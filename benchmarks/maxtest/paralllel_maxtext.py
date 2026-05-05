@@ -1,9 +1,12 @@
 import concurrent.futures
+import pathwaysutils
 import jax
 import numpy as np
 from jax.sharding import AxisType, Mesh
 # Import MaxText training logic
 from maxtext.trainers.pre_train import train
+
+pathwaysutils.initialize()
 
 def run_subslice(subslice_coord):
   print(f"Starting MaxText job on subslice coordinate: {subslice_coord}...")
