@@ -29,7 +29,7 @@ def run_subslice(subslice_coord):
   # Run the training loop for this subslice
   train.main(config_args)
 
-def main():
+def main(argv):
   # JAX + Pathways initialization (single connection)
   # Ensure JAX_PLATFORMS=proxy and JAX_BACKEND_TARGET=grpc://127.0.0.1:29000 are exported in your shell
 
