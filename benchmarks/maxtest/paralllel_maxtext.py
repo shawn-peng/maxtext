@@ -13,7 +13,7 @@ def run_subslice(subslice_coord):
 
   # Configure maxtext parameters programmatically for this subslice
   config_args = [
-    "base_output_directory=gs://<your-gcs-bucket>/maxtext_output",
+    "base_output_directory=gs://pengyisu-tpu-testing/maxtext_output",
     "per_device_batch_size=1",
     "enable_checkpointing=false",
     "dataset_type=synthetic",
