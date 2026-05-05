@@ -24,10 +24,9 @@ def run_subslice(subslice_coord):
     "steps=10",
     "subslice_shape=2,2,1",  # Partition mesh to 2x2x1 (16 chips)
     f"subslice_coord={subslice_coord}",
-    f"run_name=pengyisu-maxtest-dev-pathways-headless"
+    f"run_name=pengyisu-maxtest-dev-pathways-headless-{subslice_coord}"
     # f"run_name=maxtext-subslice-{subslice_coord}"
   ]
-  ['run_name=pengyisu-maxtest-dev-pathways-headless-0']
   # Run the training loop for this subslice
   train.main(config_args)
 
@@ -41,7 +40,7 @@ def main(argv):
   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
     futures = [
       executor.submit(run_subslice, "0,0,0"),
-      # executor.submit(run_subslice, "0,0,1")
+      executor.submit(run_subslice, "0,0,1")
     ]
     concurrent.futures.wait(futures)
 
