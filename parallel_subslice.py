@@ -4,7 +4,10 @@ This script demonstrates two methods for resharing a JAX array from a 4x4 mesh
 to a 2x4 subslice, specifically handling a scenario where one of the potential
 2x4 subslices might contain a "bad" device.
 """
+import concurrent.futures
 import contextlib
+import functools
+import os
 import time
 from typing import Callable, Iterator
 
@@ -18,6 +21,26 @@ from pathwaysutils.experimental import split_by_mesh_axis
 BAD_DEVICE_ID = 4
 
 
+# Single host physical coordinate shape map per TPU generation / device kind
+TPU_GENERATION_HOST_SHAPES = {
+    "TPU v4": (2, 2),
+    "TPU v5 lite": (2, 4),
+    "TPU v5p": (2, 2),
+    "TPU v6 lite": (2, 4),
+    "cpu": (2, 2),
+}
+
+
+@jax.jit
+def f(x: jax.Array) -> jax.Array:
+  return x**2 + x - 2
+
+
+@jax.jit
+def f_prime(x: jax.Array) -> jax.Array:
+  return 2 * x + 1
+
+
 @contextlib.contextmanager
 def timer(prefix: str) -> Iterator[None]:
   """A context manager that measures the time elapsed within the context."""
@@ -28,165 +51,7 @@ def timer(prefix: str) -> Iterator[None]:
   print(f"Elapsed time: {end_time - start_time} seconds")
 
 
-def _get_devices_split_in_two(
-    all_devices_list: list[jax.Device],
-) -> tuple[list[jax.Device], list[jax.Device]]:
-  """Splits devices into two equal sets based on device coords."""
-  if len(all_devices_list) % 2 != 0:
-    raise ValueError(
-        f"Total devices ({len(all_devices_list)}) must be even to split in two."
-    )
-  device_coord_tuples = [
-      (d.coords[0], d.coords[1], d.coords[2], d.core_on_chip)
-      for d in all_devices_list
-  ]
-  device_coords = np.array(device_coord_tuples)
-  min_coords = np.min(device_coords, axis=0)
-  device_coords -= min_coords
-  max_coords = np.max(device_coords, axis=0)
-  shape = max_coords + 1
-  device_array = np.empty(shape, dtype=object)
-  for i, d in enumerate(all_devices_list):
-    device_array[tuple(device_coords[i])] = d
-
-  z_dim = 2
-  y_dim = 1
-  if shape[z_dim] > 1 and shape[z_dim] % 2 == 0:
-    split_dim_idx = z_dim
-  elif shape[y_dim] > 1 and shape[y_dim] % 2 == 0:
-    split_dim_idx = y_dim
-  else:
-    raise ValueError(
-        "Cannot find a dimension to split for host-aligned subslicing."
-    )
-
-  mid = shape[split_dim_idx] // 2
-  if split_dim_idx == 1:
-    devices1 = device_array[:, :mid, :, :].flatten().tolist()
-    devices2 = device_array[:, mid:, :, :].flatten().tolist()
-  elif split_dim_idx == 2:
-    devices1 = device_array[:, :, :mid, :].flatten().tolist()
-    devices2 = device_array[:, :, mid:, :].flatten().tolist()
-  else:
-    raise ValueError(
-        f"Unsupported split dimension: {split_dim_idx}. Must be 1 or 2."
-    )
-
-  # Devices need to be sorted to maintain canonical order
-  key = lambda d: (d.coords[0], d.coords[1], d.coords[2], d.core_on_chip, d.id)
-  devices1.sort(key=key)
-  devices2.sort(key=key)
-  return devices1, devices2
-
-
-def reshard_to_2x4_via_device_put(x_4x4: jax.Array) -> jax.Array:
-  """Reshards an array from a 4x4 mesh to a 2x4 subslice using jax.device_put.
-
-  This function selects one of the two possible 2x4 subslices from the 4x4 mesh
-  based on whether `BAD_DEVICE_ID` is present in the first subslice. It then
-  uses `jax.device_put` to reshard the input array to the chosen 2x4 subslice.
-  Note that `jax.device_put` transfers the array through the controller, which
-  can be very slow for large arrays.
-
-  Args:
-    x_4x4: The input JAX array sharded on a 4x4 mesh.
-
-  Returns:
-    A JAX array sharded on a 2x4 mesh.
-  """
-
-  def get_subslice_devices(
-      all_devices_list: list[jax.Device], sub_mesh_shape: tuple[int, int]
-  ) -> np.ndarray:
-    """Selects a host-aligned subslice of devices."""
-    devices1, devices2 = _get_devices_split_in_two(all_devices_list)
-
-    # Choose the set that doesn't contain the bad device
-    if any(d.id == BAD_DEVICE_ID for d in devices1):
-      print(f"Bad device {BAD_DEVICE_ID} found in first set, using second.")
-      selected_set = devices2
-    else:
-      print(f"No bad device {BAD_DEVICE_ID} found in first set, using first.")
-      selected_set = devices1
-
-    return np.array(selected_set).reshape(sub_mesh_shape)
-
-  devices = get_subslice_devices(
-      list(x_4x4.sharding.mesh.devices.flat), (2, 4)
-  )
-
-  mesh_2x4 = jax.sharding.Mesh(
-      devices=devices,
-      axis_names=("x", "y"),
-  )
-  sharding_2x4 = jax.sharding.NamedSharding(
-      mesh_2x4,
-      jax.sharding.PartitionSpec("x", "y"),
-  )
-
-  with jax.transfer_guard("log"), timer("Resharding to 2x4 via device_put"):
-    x_2x4 = jax.device_put(x_4x4, sharding_2x4)
-
-  return x_2x4
-
-
-def reshard_to_2x4_via_intermediate_and_device_put(
-    x_4x4: jax.Array,
-) -> jax.Array:
-  """Reshards an array from a 4x4 mesh to a 2x4 subslice via an intermediate sharding.
-
-  This function first reshares the input `x_4x4` to a 2x2x4 mesh, and then
-  splits along the first axis to select one of the 2x4 subslices. It checks
-  for `BAD_DEVICE_ID` in the first subslice and returns the other if found. This
-  approach avoids expensive transfers to the controller.
-
-  Args:
-    x_4x4: The input JAX array sharded on a 4x4 mesh.
-
-  Returns:
-    A JAX array sharded on a 2x4 mesh, representing one of the subslices.
-  """
-  all_devices_list = list(x_4x4.sharding.mesh.devices.flat)
-  sub_mesh_shape = (2, 4)
-  devices1, devices2 = _get_devices_split_in_two(all_devices_list)
-
-  # Construct 2x2x4 mesh
-  d1_reshaped = np.array(devices1).reshape(sub_mesh_shape)
-  d2_reshaped = np.array(devices2).reshape(sub_mesh_shape)
-
-  # Stack them along a new first axis
-  devices_stacked = np.stack([d1_reshaped, d2_reshaped], axis=0)  # (2, 2, 4)
-
-  mesh_2x2x4 = jax.sharding.Mesh(
-      devices=devices_stacked,
-      axis_names=("y_replica", "x", "y"),
-  )
-  intermediate_sharding_2x2x4 = jax.sharding.NamedSharding(
-      mesh_2x2x4,
-      jax.sharding.PartitionSpec("x", "y"),
-  )
-
-  with (
-      jax.transfer_guard("log"),
-      timer("Resharding to 2x4 via intermediate sharding"),
-  ):
-    x_2x2x4 = jax.device_put(
-        x_4x4,
-        intermediate_sharding_2x2x4,
-    )
-
-    x_2x4, other_x_2x4 = split_by_mesh_axis.split_by_mesh_axis(
-        x_2x2x4, "y_replica"
-    )
-
-  if any(device.id == BAD_DEVICE_ID for device in x_2x4.sharding.device_set):
-    print(f"Bad device {BAD_DEVICE_ID} found in first set, using second.")
-    return other_x_2x4
-  else:
-    print(f"No bad device {BAD_DEVICE_ID} found in first set, using first.")
-    return x_2x4
-
-
+@functools.partial(jax.jit, static_argnums=(1, 2, 3))
 def run_newton_iterations(
     x: jax.Array,
     f: Callable[[jax.Array], jax.Array],
@@ -209,99 +74,206 @@ def run_newton_iterations(
   return x
 
 
-def solve(
-    x_4x4: jax.Array, get_x_2x4: Callable[[jax.Array], jax.Array]
-) -> jax.Array:
-  """Solves the equation x**2 + x - 2 = 0 using Newton's method.
-
-  The function first performs a few iterations of Newton's method on the full
-  4x4 mesh, then uses the provided `get_x_2x4` function to reshard to a 2x4
-  subslice, and continues the iterations on the subslice.
+def create_subslices(
+    devices_orig: list,
+    host_mesh_shape: tuple[int, ...],
+) -> np.ndarray:
+  """Creates a multidimensional grid of host-aligned subslice device meshes.
 
   Args:
-    x_4x4: The initial JAX array sharded on a 4x4 mesh.
-    get_x_2x4: A function that takes the array on the 4x4 mesh and returns
-      a reshared array on a 2x4 subslice.
+    devices_orig: A coordinate-assigned parent device array of shape orig_mesh_shape or a list of devices.
+    host_mesh_shape: The shape of each host subslice mesh.
 
   Returns:
-    A JAX array on a 2x4 mesh containing the solutions.
+    A multidimensional numpy array of shape grid_shape (dtype=object)
+    where each element is a numpy array of devices representing a subslice.
   """
-  # solve (x - 1)*(x + 2) = x**2 + x - 2 = 0
-  # Solutions of x = 1, x = -2
-  @jax.jit
-  def f(x: jax.Array) -> jax.Array:
-    return x**2 + x - 2
+  # devices_orig = np.asarray(devices_orig)
 
-  @jax.jit
-  def f_prime(x: jax.Array) -> jax.Array:
-    return 2 * x + 1
+  # create a slice (ndarray) based on device coords
+  shape = np.array(devices_orig[-1].coords[::-1]) + 1
+  print('shape:', shape)
 
-  print("Starting solve on 4x4")
-  x_4x4 = run_newton_iterations(x_4x4, f, f_prime, num_iterations=3)
+  orig_slice = np.ndarray(shape, dtype=object)
+  print('orig_slice:', orig_slice)
+  print('orig_slice_shape:', orig_slice.shape)
+  for d in devices_orig:
+    print('d.coords:', d.coords)
+    orig_slice[tuple(d.coords[::-1])] = d
 
-  print("Continuing solve on 2x4 subslice")
-  x_2x4 = get_x_2x4(x_4x4)
+  print(orig_slice)
+  print('orig_slice.shape:', orig_slice.shape)
 
-  x_2x4 = run_newton_iterations(x_2x4, f, f_prime, num_iterations=3)
+  padded_host_mesh_shape = np.pad(
+      host_mesh_shape[::-1],
+      (0, max(0, len(orig_slice.shape) - len(host_mesh_shape))),
+      mode='constant',
+      constant_values=1,
+  )[::-1]
+  print('padded_host_mesh_shape:', padded_host_mesh_shape)
 
-  return x_2x4
+  subslices_shape = np.array(orig_slice.shape) // padded_host_mesh_shape
+  print('subslices_shape:', subslices_shape)
+
+  subslices = np.ndarray(subslices_shape, dtype=object)
+  for idx in np.ndindex(*subslices_shape):
+    print("creating subslice", idx)
+    lower = np.array(idx) * padded_host_mesh_shape
+    upper = (np.array(idx) + 1) * padded_host_mesh_shape
+    subslice_indices = tuple(
+        slice(lower[d], upper[d])
+        for d in range(len(idx))
+    )
+    print("subslice_indices", subslice_indices)
+    subslice_devices = orig_slice[subslice_indices].flatten()
+    subslices[idx] = mesh_utils.create_device_mesh(
+        mesh_shape=host_mesh_shape,
+        devices=subslice_devices,
+        allow_split_physical_axes=False,
+    )
+    print("created subslice %s" % (idx,))
+    print("created subslice %s" % (subslices[idx],))
+    print("created subslice shape: %s" % (subslices[idx].shape,))
+
+  return subslices
+
+
+def solve(
+    x_subs: list[jax.Array] | np.ndarray | jax.Array,
+    subslices: np.ndarray[jax.sharding.Mesh],
+    executor: concurrent.futures.ThreadPoolExecutor,
+) -> list[jax.Array]:
+  """Solves the equation x**2 + x - 2 = 0 using Newton's method in parallel subslices.
+
+  The function continues the iterations on all subslices in parallel.
+
+  Args:
+    x_subs: The JAX arrays sharded on the subslices.
+    subslice_mesh: The subslice mesh to use for execution.
+    executor: The ThreadPoolExecutor to run the parallel tasks.
+
+  Returns:
+    A list of JAX arrays containing the solutions on the subslices.
+  """
+  # Standardize to a flat list of non-None JAX arrays for parallel execution
+
+  def solve_single_subslice(sub_x: jax.Array, idx: tuple[int]) -> jax.Array:
+    print(f"[Subslice {idx}] Starting Newton iterations...")
+    with jax.set_mesh(sub_x.sharding.mesh):
+      print(f"Running subslice {idx}")
+      sub_x = run_newton_iterations(sub_x, f, f_prime, num_iterations=10)
+      print(f"Finished subslice {idx}, x: {np.unique(jax.device_get(sub_x))}")
+
+    # Iterate over the shards of the subslice array local to this process
+    for shard in sub_x.addressable_shards:
+      shard_host_data = jax.device_get(shard.data)
+      print(f"[Subslice {idx}] Retrieved shard at {shard.index} with shape {shard_host_data.shape}")
+    
+    return sub_x
+  
+  x_subs_sharded = np.ndarray(subslices.shape, dtype=object)
+  for idx in np.ndindex(*subslices.shape):
+    sub_mesh = jax.sharding.Mesh(subslices[idx], axis_names=('x', 'y'))
+    sharding = jax.sharding.NamedSharding(sub_mesh, jax.sharding.PartitionSpec(None, 'x', 'y'))
+    x_subs_sharded[idx] = jax.device_put(x_subs[idx], sharding)
+
+  # Run all subslices concurrently using the provided ThreadPoolExecutor
+  futures = [
+      executor.submit(solve_single_subslice, x_subs_sharded[idx], idx)
+      for idx in np.ndindex(*subslices.shape)
+  ]
+  results = [f.result() for f in futures]
+
+  return results
 
 
 def main() -> None:
-  pathwaysutils.initialize()
+  if not (os.environ.get("JAX_PLATFORMS") == "cpu"):
+    pathwaysutils.initialize()
+
+  import argparse
+  parser = argparse.ArgumentParser(description="Parallel subslice orchestration.")
+  parser.add_argument(
+      "--topology",
+      type=str,
+      required=True,
+      help="Topology shape as string (e.g., '4x4' or '4x4x2' or '2x2x4').",
+  )
+  args, _ = parser.parse_known_args()
 
   num_devices = jax.device_count()
   print(f"Found {num_devices} devices.")
 
-  if num_devices < 16:
-    print(
-        f"Warning: This script is tuned for at least 16 devices. Found {num_devices}"
-    )
+  delim = ',' if ',' in args.topology else 'x'
+  orig_mesh_shape = tuple(int(x) for x in args.topology.split(delim))
+  print(f"Using logical slice topology: {orig_mesh_shape}")
 
-  devices_4x4 = mesh_utils.create_device_mesh(
-      mesh_shape=(4, 4),
-      devices=jax.devices()[:16],
+  print(f"Dynamically creating original mesh with shape {orig_mesh_shape} from {num_devices} devices.")
+
+  devices = jax.devices()[:num_devices]
+  devices_orig = mesh_utils.create_device_mesh(
+      mesh_shape=orig_mesh_shape,
+      devices=devices,
+      allow_split_physical_axes=False,
   )
+  print('devices_orig: ', devices_orig)
+  print('devices_orig.shape: ', devices_orig.shape)
 
-  mesh_4x4 = jax.sharding.Mesh(
-      devices=devices_4x4,
-      axis_names=("x", "y"),
+  host_mesh_shape = TPU_GENERATION_HOST_SHAPES[jax.devices()[0].device_kind]
+
+  subslices = create_subslices(devices, host_mesh_shape)
+  print('subslices: ', subslices)
+
+  # return
+
+  print(f"Successfully created {len(subslices)} host-aligned subslices of shape {host_mesh_shape}.")
+
+  print(subslices)
+  print(subslices.shape)
+
+  # return
+
+
+  # Map dimensions to axis names dynamically (e.g., x, y, z, ...)
+  standard_axis_names = ("x", "y", "z", "w")
+  orig_axis_names = standard_axis_names[:len(orig_mesh_shape)]
+
+  mesh_orig = jax.sharding.Mesh(
+      devices=devices_orig,
+      axis_names=orig_axis_names,
   )
-  sharding_4x4 = jax.sharding.NamedSharding(
-      mesh_4x4,
-      jax.sharding.PartitionSpec("x", "y"),
+  print("Original mesh:", mesh_orig)
+  sharding_orig = jax.sharding.NamedSharding(
+      mesh_orig,
+      jax.sharding.PartitionSpec(*orig_axis_names),
   )
+  print("Original sharding:", sharding_orig)
 
-  x_4x4 = jax.device_put(
-      np.hstack((
-          np.linspace(-3, -1, 50 * 4),
-          np.linspace(0.5, 1.6, 50 * 4),
-      )).reshape(100, 4),
-      sharding_4x4,
-  )
+  # Create array where last dimensions match mesh shape for partitioning spec
+  array_shape = (100,) + orig_mesh_shape[1:]
+  total_elements = int(100 * np.prod(orig_mesh_shape[1:]))
+  x = np.hstack((
+          np.linspace(-3, -1, total_elements // 2),
+          np.linspace(0.5, 1.6, total_elements // 2),
+      )).reshape(array_shape)
+  print("Original X:", x)
+  print("Original array shape:", x.shape)
+  x_full_shard = jax.device_put(x, sharding_orig)
+  x = run_newton_iterations(x_full_shard, f, f_prime, num_iterations=10)
+  print("Newton solved array (on full mesh): ", np.unique(jax.device_get(x)))
 
-  # Establish the computation origin for device-to-host transfers on the 4x4 mesh.
-  # Since x_2x4 will have shape (100, 4) sharded on (2, 4) mesh (shard shape 50x1),
-  # we must perform a transfer of shard shape 50x1 on the 4x4 mesh by transferring
-  # an array of shape (200, 4).
-  print("Initial device-to-host transfers on 4x4 mesh to establish origin...")
-  _ = np.array(x_4x4)
-  dummy_200x4 = jax.device_put(np.zeros((200, 4), dtype=np.float32), sharding_4x4)
-  _ = np.array(dummy_200x4)
+  x_shards = x.reshape(*subslices.shape, -1, *host_mesh_shape) # + (slice_shape,)
+  print("X shards shape:", x_shards.shape)
+  # print(x_shards)
 
+  with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, np.prod(subslices.shape))) as executor:
+  # with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+    with timer("Solve with Newton's Method"):
+      ans = solve(x_shards, subslices, executor)
+  print("Final Solution is ", np.unique(ans))
 
-
-  get_x_2x4_dict = {
-      "reshard_to_2x4_via_device_put": reshard_to_2x4_via_device_put,
-      "reshard_to_2x4_via_intermediate_and_device_put": (
-          reshard_to_2x4_via_intermediate_and_device_put
-      ),
-  }
-
-  for method_name, get_x_2x4 in get_x_2x4_dict.items():
-    with timer(f"Solve with {method_name}"):
-      x_2x4 = solve(x_4x4, get_x_2x4)
-    print(f"Solution to x**2 + x - 2 = 0 is x={np.unique(x_2x4)}")
+  if jax.distributed.is_initialized():
+    jax.distributed.shutdown()
 
 
 if __name__ == "__main__":
