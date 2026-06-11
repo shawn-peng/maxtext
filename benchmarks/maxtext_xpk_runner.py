@@ -98,6 +98,8 @@ class WorkloadConfig:
   base_docker_image: str
   libtpu_type: LibTpuType
   libtpu_nightly_version: str = None  # A date in %Y%M%D format, 20241201
+  num_subslices: int = 1
+  subslice_index: int = 0
   num_steps: int = 20
   max_restarts: int = 0
   priority: str = "medium"
@@ -445,6 +447,7 @@ def build_user_command(
           f"steps={wl_config.num_steps}",
           f"model_name={wl_config.model.model_type}",
           f"base_output_directory={wl_config.base_output_directory}",
+          f"device_mesh=2x4,{wl_config.subslice_index}", # currently, the subslice shape is hard coded
           f"{vertex_tensorboard}",
           f"{run_name_command}",
           f"{enable_metrics_cmd}",

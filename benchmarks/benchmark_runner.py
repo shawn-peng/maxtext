@@ -35,6 +35,7 @@ from benchmarks.maxtext_xpk_runner import xpk_benchmark_runner
 from benchmarks.maxtext_xpk_runner import on_device_benchmark_runner
 from benchmarks.xpk_configs import XpkClusterConfig
 from benchmarks.maxtext_xpk_runner import LibTpuType
+from maxtext.utils import accelerator_to_spec_map
 
 
 def add_pathways_arguments(parser: argparse.ArgumentParser):
@@ -236,8 +237,41 @@ def add_on_device_runner_arguments(custom_parser: argparse.ArgumentParser):
       help="Number of steps to run the workload for.",
   )
 
-
 def add_healthscan_runner_arguments(custom_parser: argparse.ArgumentParser):
+  """Add arguments to the healthscan runner parser.
+
+  Args:
+    custom_parser: parser to add shared arguments to.
+  """
+  custom_parser.add_argument(
+    "--base_output_directory",
+    type=str,
+    default=None,
+    required=True,
+    help="gcloud bucket to store artifacts.",
+  )
+  custom_parser.add_argument(
+    "--device_type",
+    type=str,
+    default=None,
+    required=True,
+    help="tpu device type command.",
+  )
+  custom_parser.add_argument(
+    "--run_name",
+    type=str,
+    default=None,
+    help="run_name for model run",
+  )
+  custom_parser.add_argument(
+    "--num_steps",
+    type=int,
+    default=20,
+    help="Number of steps to run the workload for.",
+  )
+
+
+def add_scan_bad_hosts_runner_arguments(custom_parser: argparse.ArgumentParser):
   """Add arguments to the healthscan runner parser.
 
   Args:
@@ -269,6 +303,19 @@ def add_healthscan_runner_arguments(custom_parser: argparse.ArgumentParser):
       default=20,
       help="Number of steps to run the workload for.",
   )
+  custom_parser.add_argument(
+      "--num_subslices",
+      type=int,
+      default=None,
+      help="Number of slices to run the workload.",
+  )
+  custom_parser.add_argument(
+      "--slice_topology",
+      type=str,
+      default=None,
+      help="Topology name / dimensions of the slice (e.g., '16x16' or '4x4x8').",
+  )
+
 
 
 def main() -> None:
@@ -278,10 +325,12 @@ def main() -> None:
   xpk_runner_parser = subparsers.add_parser("xpk")
   on_device_runner_parser = subparsers.add_parser("on-device")
   healthscan_runner_parser = subparsers.add_parser("healthscan")
+  scan_bad_hosts_runner_parser = subparsers.add_parser("scan-bad-hosts")
   add_xpk_runner_arguments(xpk_runner_parser)
   add_on_device_runner_arguments(on_device_runner_parser)
   add_pathways_arguments(parser)
   add_healthscan_runner_arguments(healthscan_runner_parser)
+  add_scan_bad_hosts_runner_arguments(scan_bad_hosts_runner_parser)
   options = parser.parse_args()
 
   # Check that there are no duplicate model configs
@@ -290,7 +339,7 @@ def main() -> None:
   libtpu_type = None
   model = None
 
-  if options.runner != "healthscan":
+  if options.runner not in ["healthscan", "scan-bad-hosts"]:
     model = (
         trillium_model_dict.get(options.model_name)
         or v5e_model_dict.get(options.model_name)
@@ -397,6 +446,140 @@ def main() -> None:
 
     workload_config.model.tuning_params["gcs_metrics"] = False
     on_device_benchmark_runner(workload_configs=[workload_config])
+  elif options.runner == "scan-bad-hosts":
+    num_subslices = options.num_subslices
+    print(f"running scan-bad-hosts with {num_subslices} subslices")
+
+    model = trillium_model_dict["default_basic_1"]
+
+    curr_date = time.strftime("%Y%m%d")
+
+    spec = accelerator_to_spec_map.get_system_characteristics(options.device_type)
+    print(f"System characteristics: {spec}")
+
+    if getattr(options, "slice_topology", None):
+      topology_part = options.slice_topology
+    else:
+      topology_part = spec.topology_name.split(":")[-1]  # e.g. "16x16" or "4x4x8"
+    dims = [int(d) for d in topology_part.split("x")]
+    if len(dims) == 2:
+      dims.append(1)  # Pad to 3D
+
+    host_bounds = list(spec.chips_per_host_bounds) if spec.chips_per_host_bounds else [2, 2, 1]
+    if len(host_bounds) == 2:
+      host_bounds.append(1)
+
+    print(f"Total topology dimensions: {dims}")
+    print(f"Host bounds: {host_bounds}")
+
+    model = trillium_model_dict["default_basic_1"]
+    curr_date = time.strftime("%Y%m%d")
+
+    def create_subslice_workload_config(
+        subslice_shape,
+        subslice_coord,
+        run_name: str,
+    ) -> WorkloadConfig:
+      """Creates a WorkloadConfig targeted to a specific subslice."""
+      import dataclasses
+      model_copy = dataclasses.replace(model)
+      model_copy.tuning_params = model_copy.tuning_params.copy()
+
+      workload_config = WorkloadConfig(
+          model=model_copy,
+          num_slices=None,
+          device_type=options.device_type,
+          libtpu_type=LibTpuType.MAXTEXT,
+          base_docker_image=None,
+          num_steps=options.num_steps,
+          base_output_directory=options.base_output_directory,
+          run_name=run_name,
+          generate_metrics_and_upload_to_big_query=False,
+      )
+
+      workload_config.model.tuning_params["gcs_metrics"] = False
+      workload_config.model.tuning_params["subslice_shape"] = f"{subslice_shape[0]},{subslice_shape[1]},{subslice_shape[2]}"
+      workload_config.model.tuning_params["subslice_coord"] = f"{subslice_coord[0]},{subslice_coord[1]},{subslice_coord[2]}"
+      workload_config.model.tuning_params["enable_single_controller"] = True
+
+      return workload_config
+
+    import subprocess
+
+    # Test the whole slice first to verify if there is actually a bad host
+    try:
+      print(f"Testing the whole slice first (shape: {dims}, coord: (0, 0, 0))...")
+      whole_slice_config = create_subslice_workload_config(
+          subslice_shape=dims,
+          subslice_coord=(0, 0, 0),
+          run_name=f"{curr_date}-health-test-whole",
+      )
+      on_device_benchmark_runner(workload_configs=[whole_slice_config])
+      print("Run on the whole slice SUCCEEDED! No bad hosts detected.")
+      return
+    except subprocess.CalledProcessError as e:
+      print(f"Run on the whole slice FAILED with exception: {e}. Starting bisection search to isolate the bad host...")
+
+    # Bisection search variables
+    current_shape = tuple(dims)
+    current_coord = (0, 0, 0)
+
+    step_num = 1
+    while True:
+      # Calculate the ratio of current subslice shape to host bounds
+      ratios = [current_shape[d] / host_bounds[d] for d in range(3)]
+      max_ratio = max(ratios)
+      
+      if max_ratio <= 1.0:
+        print(f"\n[Bisection Complete] Isolated bad host(s) to subslice: shape {current_shape}, coord {current_coord}")
+        break
+
+      # Choose the dimension with the largest ratio to bisect
+      split_dim = ratios.index(max_ratio)
+      dim_name = ['X', 'Y', 'Z'][split_dim]
+
+      left_shape = list(current_shape)
+      left_shape[split_dim] = current_shape[split_dim] // 2
+      left_shape = tuple(left_shape)
+
+      left_coord = list(current_coord)
+      left_coord[split_dim] = current_coord[split_dim] * 2
+      left_coord = tuple(left_coord)
+
+      right_shape = left_shape
+      right_coord = list(current_coord)
+      right_coord[split_dim] = current_coord[split_dim] * 2 + 1
+      right_coord = tuple(right_coord)
+
+      print(f"\n--- Bisection Step {step_num} ---")
+      print(f"Current subslice shape: {current_shape}, coord: {current_coord}")
+      print(f"Bisecting along dimension {dim_name}:")
+      print(f"  Left half:  shape {left_shape}, coord {left_coord}")
+      print(f"  Right half: shape {right_shape}, coord {right_coord}")
+
+      # Build workload config for the left half
+      run_name = f"{curr_date}-health-test-step{step_num}"
+      workload_config = create_subslice_workload_config(
+          subslice_shape=left_shape,
+          subslice_coord=left_coord,
+          run_name=run_name,
+      )
+
+      # Run the left half
+      try:
+        print(f"Running workload for left half (shape: {left_shape}, coord: {left_coord})...")
+        # on_device_benchmark_runner(workload_configs=[workload_config])
+        print(f"Left half SUCCEEDED. Bad host must be in the right half.")
+        # Left half succeeded, so search the right half
+        current_shape = right_shape
+        current_coord = right_coord
+      except subprocess.CalledProcessError as e:
+        print(f"Left half FAILED with exception: {e}. Bad host must be in the left half.")
+        # Left half failed, so search the left half
+        current_shape = left_shape
+        current_coord = left_coord
+
+      step_num += 1
 
 
 if __name__ == "__main__":

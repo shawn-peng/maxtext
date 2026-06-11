@@ -502,6 +502,7 @@ def train_loop(config, recorder, state=None):
       eval_data_iterator,
       state,
   ) = train_utils.setup_train_loop(config, recorder)
+  print(f'mesh created {mesh}')
 
   if config.use_dpo:
     if "reference_params" not in state.params:
@@ -701,6 +702,8 @@ def get_train_func(config, recorder, diagnostic_config, argv):
 
 
 def main(argv: Sequence[str]) -> None:
+  print('main function in the train.py')
+  print('argv:', argv)
   config, recorder, diagnostic_config = initialize(argv)
   record_goodput(recorder, RECORD_JOB_START_TIME)
   train_func = get_train_func(config, recorder, diagnostic_config, argv)
